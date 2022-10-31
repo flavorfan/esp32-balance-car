@@ -28,18 +28,21 @@
 float Balance_Angle_raw = 1.2;                              //静态机械平衡角度。
 const int leftMotorPwmOffset = 72, rightMotorPwmOffset = 72; //左右轮的启动pwm值，pwm达到一定电压马达才开始转动。
 
-//int z_turn_spd = 60;                                         //转弯的幅度，通过两轮的pwm差值来实现转向。
+int z_turn_spd = 60;                                         //转弯的幅度，通过两轮的pwm差值来实现转向。
 float ENERGY = 6;                                            //前进后退倾角，控制前进后退速度。
 float kp = 0, ki = 0, kd = 0;                           //根据调试设置kp ki kd的默认值
+//float kp = 18, ki = 0.6, kd = 0.8;                           //根据调试设置kp ki kd的默认值
 float angle_kp = -2;                                          //根据调试设置kp ki kd的默认值
 
 float Keep_Angle, bias, integrate;                 //保持角度，角度偏差，偏差积分变量
-float AngleX, GyroX,  GyroZ; // mpu6050输出的角度值为浮点数，两位有效小数
-int vertical_PWM, PWM, L_PWM, R_PWM;    //各种PWM计算值
+float AngleX, AngleY, AngleZ, GyroX, GyroY, GyroZ; // mpu6050输出的角度值为浮点数，两位有效小数
+int vertical_PWM, angle_PWM, PWM, L_PWM, R_PWM;    //各种PWM计算值
 
-//char flag = 's';
+char flag = 's';
 
 int sda_pin = 13, scl_pin = 15;
+
+int debug = 0;
 
 BluetoothSerial SerialBT;
 MPU6050 mpu6050(Wire); //实例化mpu对象
@@ -127,12 +130,41 @@ void serial_debug() //串口调试和控制程序
     case '5':
       kd += 0.1;
       break; //调节直立环微分项-+
-//    case '6':
-//      angle_kp -= 0.2;
-//      break;
-//    case '7':
-//      angle_kp += 0.2;
-//      break; //调节转向环比例项，取值范围由限定范围确定。
+    case '6':
+      angle_kp -= 0.2;
+      break;
+    case '7':
+      angle_kp += 0.2;
+      break; //调节转向环比例项，取值范围由限定范围确定。
+
+    /*控制程序*/
+    case 's': //停车
+      flag = 's';
+      Keep_Angle = Balance_Angle_raw;
+      z_turn_spd = 0;
+      break;  //调节物理平衡点为机械平衡角度值，原地平衡
+    case 'a': //前进
+      flag = 'a';
+      Keep_Angle = Balance_Angle_raw + ENERGY;
+      z_turn_spd = 0;
+      break;
+    case 'b': //后退
+      flag = 'b';
+      Keep_Angle = Balance_Angle_raw - ENERGY;
+      z_turn_spd = 0;
+      break;
+    case 'l': //左转
+      flag = 'l';
+      z_turn_spd = 60;
+      break;
+    case 'r': //右转
+      flag = 'r';
+      z_turn_spd = -60;
+      break;
+
+    case 'z': //debug
+      debug = ! debug;
+      break;
     }
 
     if (kp < 0)
@@ -146,9 +178,8 @@ void serial_debug() //串口调试和控制程序
     SerialBT.print("kp:");    SerialBT.print(kp);
     SerialBT.print("  ki:");    SerialBT.print(ki);
     SerialBT.print("  kd:");    SerialBT.println(kd);
-//    SerialBT.print("  angle_kp:");
-//    SerialBT.println(angle_kp);
-    SerialBT.println("--------------------");
+    SerialBT.print("  angle_kp:");   SerialBT.println(angle_kp);
+    // SerialBT.println("--------------------");
   }
 }
 
@@ -159,6 +190,15 @@ void serial_debug() //串口调试和控制程序
 //  angle_PWM = angle_kp * (GyroZ - z_turn_spd);
 //  angle_PWM = constrain(angle_PWM, -130, 130);
 //}
+
+void angle_pwm_calculation()
+{
+  //  AngleZ = mpu6050.getAngleZ(); //获取陀螺仪角度
+  GyroZ = mpu6050.getGyroZ(); //获取陀螺仪角速度
+  angle_PWM = angle_kp * (GyroZ - z_turn_spd);
+  angle_PWM = constrain(angle_PWM, -130, 130);
+}
+
 
 void vertical_pwm_calculation()
 {
@@ -194,22 +234,22 @@ void motor_control()
   }
 
 //  /*---【转向判断】-------------*/
-//  if (flag == 's')
-//  {
-//    L_PWM = L_PWM;
-//    R_PWM = R_PWM;
-//    // flag == s,使小车保持原地直立stop
-//  }
-//  if (flag == 'l') // flag l，left控制两轮的pwm差值，通过左轮减速，右轮加速。使其左转。
-//  {
-//    L_PWM += angle_PWM;
-//    R_PWM -= angle_PWM;
-//  }
-//  if (flag == 'r')
-//  { // flag  r，控制两轮的pwm差值，通过左轮加速，右轮减速。使其右转
-//    L_PWM += angle_PWM;
-//    R_PWM -= angle_PWM;
-//  }
+  if (flag == 's')
+  {
+    L_PWM = L_PWM;
+    R_PWM = R_PWM;
+    // flag == s,使小车保持原地直立stop
+  }
+  if (flag == 'l') // flag l，left控制两轮的pwm差值，通过左轮减速，右轮加速。使其左转。
+  {
+    L_PWM += angle_PWM;
+    R_PWM -= angle_PWM;
+  }
+  if (flag == 'r')
+  { // flag  r，控制两轮的pwm差值，通过左轮加速，右轮减速。使其右转
+    L_PWM += angle_PWM;
+    R_PWM -= angle_PWM;
+  }
 
   /*---【控制马达输出】-------------*/
   L_PWM = constrain(L_PWM, -255, 255); //计算出来的PWM限定大小。255为输出上限。
@@ -227,7 +267,7 @@ void motor_control()
 void setup()
 {
 
-  Serial.begin(115200);
+  //Serial.begin(115200);
   SerialBT.begin("ESP32car"); // Bluetooth device name
   Wire.begin(sda_pin, scl_pin);
   mpu6050.begin();
@@ -235,7 +275,7 @@ void setup()
   //  mpu6050.setGyroOffsets(*, *, *);
   Keep_Angle = Balance_Angle_raw; //平衡角度初始化为静态平衡时的陀螺仪角度。Keep_Angle可以改变，才可以控制前进后退。
   motor(0, 0);                    //机器启动时马达确保停止。
-  delay(10);                      //循环前延时，确保各种初始和准备完成
+  delay(50);                      //循环前延时，确保各种初始和准备完成
 }
 
 void loop()
@@ -247,11 +287,17 @@ void loop()
   mpu6050.update();
 
   /*====PWM计算====*/
-//  angle_pwm_calculation();    //转向环计算pwm值
+  angle_pwm_calculation();    //转向环计算pwm值
   vertical_pwm_calculation(); //直立环PWM计算
 
   PWM = vertical_PWM;
 
   /*====马达输出=====*/
   motor_control();
+
+  if (debug)
+  // AngleX
+    SerialBT.printf("#%.3f %.3f %.3f\n",bias, integrate, GyroX);
+
+  delay(0.5);
 }
